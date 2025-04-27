@@ -6,3 +6,6 @@ class Package:
         self.y = y
         self.weight = weight
         self.priority = priority
+    
+    def display_package(self):
+        print(f"(id={self.id}, x={self.x}, y={self.y}, weight={self.weight}, priority={self.priority})")
