@@ -3,6 +3,7 @@
 
 from package import Package
 from vehicle import Vehicle
+from algorithms import genetic_algorithm, simulated_annealing
 
 class LoadManager:
     
@@ -35,4 +36,10 @@ class LoadManager:
         print("Vehicles:\n")
         for v in self.vehicles:
             v.display_vehicle()
+    
+    def optimize(self, algorithm, params):      #-> method to return choosen algorithm result
+        if algorithm == "GA":
+            return genetic_algorithm.genetic_algorithm(self, params["GA"])
+        else:
+            return simulated_annealing.simulated_annealing(self, params["SA"])
         
