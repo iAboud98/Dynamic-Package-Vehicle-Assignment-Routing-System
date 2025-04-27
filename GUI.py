@@ -3,17 +3,14 @@
 
 import customtkinter as ctk
 from tkinter import filedialog
-import json
-
 
 def launch_gui():
-    
+
 # Theme Setup
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
 
     app = ctk.CTk()
-
     app.title("SmartDrop - Intelligent Package Routing")
     app.geometry("1200x750")
 
@@ -38,26 +35,17 @@ def launch_gui():
         }
     }
 
-    # Apply theme colors
     def apply_colors():
         colors = theme_colors[current_color][current_theme]
-
-        # main app buttons
         for btn in [add_package_btn, add_vehicle_btn, solve_btn, settings_btn]:
             btn.configure(fg_color=colors["button"], hover_color=colors["hover"])
-
-        # titles and texts
         algo_label.configure(text_color=colors["title"])
         main_title.configure(text_color=colors["title"])
         package_label.configure(text_color=colors["title"])
         vehicle_label.configure(text_color=colors["title"])
         subtitle.configure(text_color=colors["sub"])
         description.configure(text_color=colors["desc"])
-
-        # dropdown background color
         settings_dropdown.configure(fg_color=colors["dropdown"])
-
-        # menus inside dropdown
         theme_menu.configure(
             fg_color=colors["button"],
             text_color=colors["text"],
@@ -70,15 +58,12 @@ def launch_gui():
             button_color=colors["button"],
             button_hover_color=colors["hover"]
         )
-
-        # buttons inside dropdown (except Reset and Exit)
         for child in settings_dropdown.winfo_children():
             if isinstance(child, ctk.CTkButton):
                 if "Reset" in child.cget("text") or "Exit" in child.cget("text"):
                     child.configure(fg_color="red", hover_color="darkred", text_color="white")
                 else:
                     child.configure(fg_color=colors["button"], hover_color=colors["hover"], text_color=colors["text"])
-
 
     # Title
     title_frame = ctk.CTkFrame(app, fg_color="transparent")
@@ -100,7 +85,7 @@ def launch_gui():
     ctk.CTkRadioButton(algo_frame, text="Genetic Algorithm", variable=algo_var, value=1).pack(side="left", padx=10)
     ctk.CTkRadioButton(algo_frame, text="Simulated Annealing", variable=algo_var, value=2).pack(side="left", padx=10)
 
-    # Dropdown Frame
+    # Settings dropdown
     settings_dropdown = ctk.CTkToplevel(app)
     settings_dropdown.withdraw()
     settings_dropdown.overrideredirect(True)
@@ -116,6 +101,13 @@ def launch_gui():
         global current_color
         current_color = color_name
         apply_colors()
+        
+    def get_locked_color():
+        # a subtle grey for dark vs. light theme
+        if ctk.get_appearance_mode() == "Dark":
+            return "#2B2B2B"
+        else:
+            return "#EAEAEA"
 
     def reset_all():
         global current_color, current_theme
@@ -125,33 +117,70 @@ def launch_gui():
         theme_menu.set(default_theme)
         change_theme(default_theme)
         apply_colors()
-        for widget in package_scroll.winfo_children(): widget.destroy()
-        for widget in vehicle_scroll.winfo_children(): widget.destroy()
+        for w in package_scroll.winfo_children(): w.destroy()
+        for w in vehicle_scroll.winfo_children(): w.destroy()
         add_package_bar()
         add_vehicle_bar()
 
-    def save_data():
-        data = {"packages": [], "vehicles": []}
-        for row in package_scroll.winfo_children():
-            entries = row.winfo_children()[1:-1]
-            data["packages"].append([e.get() for e in entries])
-        for row in vehicle_scroll.winfo_children():
-            data["vehicles"].append([row.winfo_children()[1].get()])
-        file_path = filedialog.asksaveasfilename(defaultextension=".json")
-        if file_path:
-            with open(file_path, "w") as f:
-                json.dump(data, f)
+    def save_data_txt():
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text Files","*.txt")])
+        if not path:
+            return
+        with open(path, "w") as f:
+            # write packages
+            f.write("# packages: X Y Weight Priority\n")
+            for row in package_scroll.winfo_children():
+                # children: [ID_label, X_entry, Y_entry, W_entry, P_entry, err_lbl, …]
+                entries = row.winfo_children()[1:5]
+                vals = [e.get().strip() for e in entries]
+                f.write(" ".join(vals) + "\n")
 
+            f.write("\n# vehicles: Capacity\n")
+            for row in vehicle_scroll.winfo_children():
+                cap = row.winfo_children()[1].get().strip()
+                f.write(cap + "\n")
 
-    def load_data():
-        for widget in package_scroll.winfo_children(): widget.destroy()
-        for widget in vehicle_scroll.winfo_children(): widget.destroy()
-        file_path = filedialog.askopenfilename(filetypes=[("JSON Files", "*.json")])
-        if file_path:
-            with open(file_path, "r") as f:
-                data = json.load(f)
-            for row in data["packages"]: add_package_bar(*row)
-            for row in data["vehicles"]: add_vehicle_bar(*row)
+    def load_data_txt():
+        # clear
+        for w in package_scroll.winfo_children(): w.destroy()
+        for w in vehicle_scroll.winfo_children(): w.destroy()
+
+        path = filedialog.askopenfilename(filetypes=[("Text Files","*.txt")])
+        if not path:
+            return
+
+        with open(path, "r") as f:
+            lines = [L.strip() for L in f if L.strip() and not L.startswith("#")]
+
+        # find blank‐line separator
+        try:
+            sep = lines.index("")  # blank line
+            pkg_lines = lines[:sep]
+            vh_lines  = lines[sep+1:]
+        except ValueError:
+            # if no blank, assume half packages or guess by count?
+            # here: everything until a non‐4‐column line is packages
+            pkg_lines, vh_lines = [], []
+            for L in lines:
+                if len(L.split()) == 4:
+                    pkg_lines.append(L)
+                else:
+                    vh_lines.append(L)
+
+        # rebuild
+        for L in pkg_lines:
+            x,y,w,p = L.split()
+            add_package_bar(x, y, w, p)
+        for L in vh_lines:
+            add_vehicle_bar(L)
+
+        update_package_ids()
+        update_vehicle_ids()
+        update_add_buttons_state()
+        apply_colors()
+
 
 
     def toggle_settings_dropdown():
@@ -165,43 +194,40 @@ def launch_gui():
             settings_dropdown.deiconify()
             settings_dropdown.focus_force()
 
-    theme_menu = ctk.CTkOptionMenu(settings_dropdown, values=["Light", "Dark"], command=change_theme)
+    theme_menu = ctk.CTkOptionMenu(settings_dropdown, values=["Light","Dark"], command=change_theme)
     theme_menu.set(default_theme)
-    theme_menu.pack(pady=(15, 5))
-
-    color_menu = ctk.CTkOptionMenu(settings_dropdown, values=["Blue", "Green", "Purple"], command=change_color)
+    theme_menu.pack(pady=(15,5))
+    color_menu = ctk.CTkOptionMenu(settings_dropdown, values=["Blue","Green","Purple"], command=change_color)
     color_menu.set(default_color)
     color_menu.pack(pady=5)
-
-    ctk.CTkButton(settings_dropdown, text="📤 Save", command=save_data).pack(pady=5)
-    ctk.CTkButton(settings_dropdown, text="📥 Load", command=load_data).pack(pady=5)
+    ctk.CTkButton(settings_dropdown, text="📤 Save File", command=save_data_txt).pack(pady=5)
+    ctk.CTkButton(settings_dropdown, text="📥 Load File", command=load_data_txt).pack(pady=5)
     ctk.CTkButton(settings_dropdown, text="🧹 Reset All Settings", command=reset_all, fg_color="red", hover_color="darkred").pack(pady=5)
-    ctk.CTkButton(settings_dropdown, text="❌ Exit", command=app.destroy,
-                fg_color="red", hover_color="darkred").pack(pady=5)
+    ctk.CTkButton(settings_dropdown, text="❌ Exit", command=app.destroy, fg_color="red", hover_color="darkred").pack(pady=5)
     settings_dropdown.bind("<FocusOut>", lambda e: settings_dropdown.withdraw())
 
     settings_btn = ctk.CTkButton(algo_frame, text="⚙️ Settings", width=100, command=toggle_settings_dropdown)
     settings_btn.place(relx=1.0, rely=0.24, x=-10, y=5, anchor="ne")
 
-    # Layout
+    # Main layout
     main_frame = ctk.CTkFrame(app)
     main_frame.pack(padx=20, pady=20, fill="both", expand=True)
 
     package_frame = ctk.CTkFrame(main_frame, width=600)
     package_frame.pack(side="left", fill="both", expand=True, padx=10)
-    package_label = ctk.CTkLabel(package_frame, text="📦 Package Table", font=("Courier", 20, "bold"))
+    package_label = ctk.CTkLabel(package_frame, text="📦 Package Table", font=("Courier",20,"bold"))
     package_label.pack(pady=10)
     package_scroll = ctk.CTkScrollableFrame(package_frame, height=350)
     package_scroll.pack(pady=10, padx=10, fill="both", expand=True)
 
     vehicle_frame = ctk.CTkFrame(main_frame, width=400)
     vehicle_frame.pack(side="right", fill="both", expand=True, padx=10)
-    vehicle_label = ctk.CTkLabel(vehicle_frame, text="🚚 Vehicle Table", font=("Courier", 20, "bold"))
+    vehicle_label = ctk.CTkLabel(vehicle_frame, text="🚚 Vehicle Table", font=("Courier",20,"bold"))
     vehicle_label.pack(pady=10)
     vehicle_scroll = ctk.CTkScrollableFrame(vehicle_frame, height=350)
     vehicle_scroll.pack(pady=10, padx=10, fill="both", expand=True)
 
-    solve_btn = ctk.CTkButton(app, text="🚀 Solve", font=("Courier", 18))
+    solve_btn = ctk.CTkButton(app, text="🚀 Solve", font=("Courier",18))
     solve_btn.pack(pady=10)
 
     def update_package_ids():
@@ -213,116 +239,127 @@ def launch_gui():
             row.winfo_children()[0].configure(text=str(i))
             
     def update_add_buttons_state():
-        # Only enable if every package row is confirmed
-        all_pk = all(getattr(r, "confirmed", False) for r in package_scroll.winfo_children())
-        add_package_btn.configure(state="normal" if all_pk else "disabled")
-        # Only enable if every vehicle row is confirmed
-        all_vh = all(getattr(r, "confirmed", False) for r in vehicle_scroll.winfo_children())
-        add_vehicle_btn.configure(state="normal" if all_vh else "disabled")
+        pk_rows = package_scroll.winfo_children()
+        vh_rows = vehicle_scroll.winfo_children()
+
+        # **Is the package table “ready” to add another?**
+        pkg_all_confirmed = bool(pk_rows) and all(r.confirmed for r in pk_rows)
+        pkg_editing       = any(getattr(r, "editing", False) for r in pk_rows)
+        pkg_ready         = pkg_all_confirmed and not pkg_editing
+
+        # **Is the vehicle table “ready” to add another?**
+        vh_all_confirmed = bool(vh_rows) and all(r.confirmed for r in vh_rows)
+        vh_editing       = any(getattr(r, "editing", False) for r in vh_rows)
+        vh_ready         = vh_all_confirmed and not vh_editing
+
+        # now set each Add-button on its own “ready” flag
+        add_package_btn.configure(state="normal" if pkg_ready else "disabled")
+        add_vehicle_btn.configure(state="normal" if vh_ready else "disabled")
+
+        # Solve only when both are ready
+        solve_btn.configure(state="normal" if pkg_ready and vh_ready else "disabled")
 
     def add_package_bar(x="", y="", w="", p=""):
         row = ctk.CTkFrame(package_scroll)
         row.pack(pady=5, padx=5)
         row.confirmed = False
+        row.editing   = False
 
-        # 1) ID cell
         id_lbl = ctk.CTkLabel(row, text="", width=30)
         id_lbl.pack(side="left", padx=5)
 
-        # 2) Entries for X, Y, Weight, Priority
         entries = {}
         for key, val, width in zip(
-            ("X", "Y", "Weight", "Priority"),
-            (x, y, w, p),
-            (50, 50, 80, 60)
+            ("X","Y","Weight","Priority"),
+            (x,y,w,p),
+            (50,50,80,60)
         ):
             e = ctk.CTkEntry(row, placeholder_text=key, width=width)
+            # **insert any pre-existing value**  
             if val:
                 e.insert(0, val)
+            # then stash its “normal” colors  
+            e._orig_fg_color   = e.cget("fg_color")
+            e._orig_text_color = e.cget("text_color")
             e.pack(side="left", padx=5)
             entries[key] = e
 
-        # 3) Inline error label
-        err_lbl = ctk.CTkLabel(row, text="", text_color="red", font=("Courier", 12))
-        err_lbl.pack(side="left", padx=(5, 10))
+        err_lbl = ctk.CTkLabel(row, text="", text_color="red", font=("Courier",12))
+        err_lbl.pack(side="left", padx=(5,10))
 
-        # 4) Callbacks
         def on_delete():
-            row.destroy()
-            update_package_ids()
+            rows = package_scroll.winfo_children()
+            if len(rows)==1:
+                for e in entries.values():
+                    e.configure(state="normal")
+                    e.delete(0,"end")
+                row.confirmed = False
+                row.editing   = False
+                err_lbl.configure(text="")
+                confirm_btn.pack(side="left", padx=2)
+                edit_btn.pack_forget()
+            else:
+                row.destroy()
+                update_package_ids()
             update_add_buttons_state()
 
         def on_confirm():
-            vals = {k: e.get().strip() for k, e in entries.items()}
-
-            # require all fields filled
-            if any(v == "" for v in vals.values()):
-                err_lbl.configure(text="⚠ fill all fields")
-                return
-
-            # parse X, Y, Weight
+            vals = {k:e.get().strip() for k,e in entries.items()}
+            if any(v=="" for v in vals.values()):
+                err_lbl.configure(text="⚠ fill all fields"); return
             try:
-                xv = float(vals["X"])
-                yv = float(vals["Y"])
-                wv = float(vals["Weight"])
+                xv,yv,wv = float(vals["X"]), float(vals["Y"]), float(vals["Weight"])
             except ValueError:
-                err_lbl.configure(text="⚠ X,Y,Weight must be numeric")
-                return
-
-            # parse Priority
+                err_lbl.configure(text="⚠ X,Y,Weight must be numeric"); return
             try:
                 pv = int(vals["Priority"])
             except ValueError:
-                err_lbl.configure(text="Priority must be integer")
-                return
+                err_lbl.configure(text="Priority must be integer"); return
+            if not (0<=xv<=100 and 0<=yv<=100):
+                err_lbl.configure(text="⚠ X,Y ∈ [0,100]"); return
+            if wv<=0:
+                err_lbl.configure(text="Weight must be > 0"); return
+            if not (0<=pv<=5):
+                err_lbl.configure(text="⚠ Priority ∈ [0,5]"); return
 
-            # range checks
-            if not (0 <= xv <= 100 and 0 <= yv <= 100):
-                err_lbl.configure(text="⚠ X,Y ∈ [0,100]")
-                return
-            if wv <= 0:
-                err_lbl.configure(text="Weight must be > 0")
-                return
-            if not (0 <= pv <= 5):
-                err_lbl.configure(text="⚠ Priority ∈ [0,5]")
-                return
-
-            # valid → lock entries & swap buttons
             row.confirmed = True
+            row.editing   = False
             for e in entries.values():
                 e.configure(state="readonly")
             err_lbl.configure(text="")
             confirm_btn.pack_forget()
             edit_btn.pack(side="left", padx=2)
+            for widget in row.winfo_children():
+                if isinstance(widget, ctk.CTkEntry):
+                    widget.configure(fg_color=get_locked_color())
+                    widget.configure(text_color="gray")
             update_add_buttons_state()
 
         def on_edit():
+            row.confirmed = False
+            row.editing   = True
             for e in entries.values():
                 e.configure(state="normal")
             edit_btn.pack_forget()
             confirm_btn.pack(side="left", padx=2)
+            for widget in row.winfo_children():
+                if isinstance(widget, ctk.CTkEntry):
+                    widget.configure (
+                        fg_color=widget._orig_fg_color,
+                        text_color=widget._orig_text_color
+                        )
             update_add_buttons_state()
 
-        # 5) Buttons: delete, confirm, edit
-        delete_btn = ctk.CTkButton(
-            row, text="❌", width=30,
-            fg_color="red", hover_color="#cc0000",
-            command=on_delete
-        )
-        confirm_btn = ctk.CTkButton(
-            row, text="✅", width=30,
-            fg_color="#28a745", hover_color="#218838", text_color="white",
-            command=on_confirm
-        )
-        edit_btn = ctk.CTkButton(
-            row, text="✏️", width=30,
-            fg_color="#ffc107", hover_color="#e0a800", text_color="black",
-            command=on_edit
-        )
+        delete_btn = ctk.CTkButton(row, text="❌", width=30, fg_color="red", hover_color="#cc0000", command=on_delete)
+        confirm_btn= ctk.CTkButton(row, text="✅", width=30, fg_color="#28a745", hover_color="#218838", text_color="white", command=on_confirm)
+        edit_btn   = ctk.CTkButton(row, text="✏️", width=30, fg_color="#ffc107", hover_color="#e0a800", text_color="black", command=on_edit)
 
         delete_btn.pack(side="left", padx=2)
         confirm_btn.pack(side="left", padx=2)
-        # edit_btn will be shown after successful confirm
+        edit_btn.pack_forget()
+
+        for e in entries.values():
+            e.bind("<Return>", lambda ev, fn=on_confirm: fn())
 
         update_package_ids()
         update_add_buttons_state()
@@ -331,77 +368,82 @@ def launch_gui():
         row = ctk.CTkFrame(vehicle_scroll)
         row.pack(pady=5, padx=5)
         row.confirmed = False
+        row.editing   = False
 
-        # 1) ID cell
         id_lbl = ctk.CTkLabel(row, text="", width=30)
         id_lbl.pack(side="left", padx=5)
 
-        # 2) Capacity entry
         cap_entry = ctk.CTkEntry(row, placeholder_text="Capacity", width=100)
         if cap:
             cap_entry.insert(0, cap)
+        cap_entry._orig_fg_color   = cap_entry.cget("fg_color")
+        cap_entry._orig_text_color = cap_entry.cget("text_color")
         cap_entry.pack(side="left", padx=5)
 
-        # 3) Inline error label
-        err_lbl = ctk.CTkLabel(row, text="", text_color="red", font=("Courier", 12))
-        err_lbl.pack(side="left", padx=(5, 10))
+        err_lbl = ctk.CTkLabel(row, text="", text_color="red", font=("Courier",12))
+        err_lbl.pack(side="left", padx=(5,10))
 
-        # 4) Callbacks
         def on_delete():
-            row.destroy()
-            update_vehicle_ids()
+            rows = vehicle_scroll.winfo_children()
+            if len(rows)==1:
+                cap_entry.configure(state="normal")
+                cap_entry.delete(0,"end")
+                row.confirmed = False
+                row.editing   = False
+                err_lbl.configure(text="")
+                confirm_btn.pack(side="left", padx=2)
+                edit_btn.pack_forget()
+            else:
+                row.destroy()
+                update_vehicle_ids()
             update_add_buttons_state()
 
         def on_confirm():
             val = cap_entry.get().strip()
             if not val:
-                err_lbl.configure(text="⚠ fill capacity")
-                return
-            # parse as float
+                err_lbl.configure(text="⚠ fill capacity"); return
             try:
                 cv = float(val)
             except ValueError:
-                err_lbl.configure(text="Capacity must be numeric")
-                return
-            if cv <= 0:
-                err_lbl.configure(text="Capacity must be > 0")
-                return
+                err_lbl.configure(text="Capacity must be numeric"); return
+            if cv<=0:
+                err_lbl.configure(text="Capacity must be > 0"); return
 
-            # valid → lock entry & swap buttons
             row.confirmed = True
+            row.editing   = False
             cap_entry.configure(state="readonly")
             err_lbl.configure(text="")
             confirm_btn.pack_forget()
             edit_btn.pack(side="left", padx=2)
+            for widget in row.winfo_children():
+                if isinstance(widget, ctk.CTkEntry):
+                    widget.configure(fg_color=get_locked_color())
+                    widget.configure(text_color="gray")
             update_add_buttons_state()
 
-
         def on_edit():
+            row.confirmed = False
+            row.editing   = True
             cap_entry.configure(state="normal")
             edit_btn.pack_forget()
             confirm_btn.pack(side="left", padx=2)
+            for widget in row.winfo_children():
+                if isinstance(widget, ctk.CTkEntry):
+                    widget.configure (
+                        fg_color=widget._orig_fg_color,
+                        text_color=widget._orig_text_color
+                        )
             update_add_buttons_state()
 
-        # 5) Buttons: delete, confirm, edit
-        delete_btn = ctk.CTkButton(
-            row, text="❌", width=30,
-            fg_color="red", hover_color="#cc0000",
-            command=on_delete
-        )
-        confirm_btn = ctk.CTkButton(
-            row, text="✅", width=30,
-            fg_color="#28a745", hover_color="#218838", text_color="white",
-            command=on_confirm
-        )
-        edit_btn = ctk.CTkButton(
-            row, text="✏️", width=30,
-            fg_color="#ffc107", hover_color="#e0a800", text_color="black",
-            command=on_edit
-        )
+        delete_btn = ctk.CTkButton(row, text="❌", width=30, fg_color="red", hover_color="#cc0000", command=on_delete)
+        confirm_btn= ctk.CTkButton(row, text="✅", width=30, fg_color="#28a745", hover_color="#218838", text_color="white", command=on_confirm)
+        edit_btn   = ctk.CTkButton(row, text="✏️", width=30, fg_color="#ffc107", hover_color="#e0a800", text_color="black", command=on_edit)
 
         delete_btn.pack(side="left", padx=2)
         confirm_btn.pack(side="left", padx=2)
-        # edit_btn will be shown after successful confirm
+        edit_btn.pack_forget()
+
+        cap_entry.bind("<Return>", lambda ev, fn=on_confirm: fn())
 
         update_vehicle_ids()
         update_add_buttons_state()
@@ -409,7 +451,6 @@ def launch_gui():
     # Buttons
     add_package_btn = ctk.CTkButton(package_frame, text="➕ Add Package", command=add_package_bar)
     add_package_btn.pack(pady=10)
-
     add_vehicle_btn = ctk.CTkButton(vehicle_frame, text="➕ Add Vehicle", command=add_vehicle_bar)
     add_vehicle_btn.pack(pady=10)
 
@@ -420,25 +461,16 @@ def launch_gui():
 
     def defocus_entries(event):
         widget = event.widget
-
-        # 1) if I clicked *anywhere* inside a CTkEntry, do nothing
         temp = widget
         while temp:
-            if isinstance(temp, ctk.CTkEntry):
-                return
+            if isinstance(temp, ctk.CTkEntry): return
             temp = temp.master
-
-        # 2) if I clicked on (or inside) the Settings button, do nothing
         temp = widget
         while temp:
-            if temp is settings_btn:
-                return
+            if temp is settings_btn: return
             temp = temp.master
-
-        # otherwise, it really is “outside” – pull focus away
         app.focus_set()
 
-    # make sure we add this *after* settings_btn & all entries exist, but *before* mainloop
     app.bind_all("<Button-1>", defocus_entries, add="+")
 
     collected_data = {
