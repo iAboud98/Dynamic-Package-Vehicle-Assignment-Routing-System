@@ -1,2 +1,4 @@
 /env
 temp_data.pkl
+.vscode
+__pycache__/
