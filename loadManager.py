@@ -1,30 +1,33 @@
+#Aboud Fialah           ID: 1220216         Section: 2
+#Aws Hammad             ID: 1221697         Section: 3 
+
 from package import Package
 from vehicle import Vehicle
 
 class LoadManager:
     
-    def __init__(self):
+    def __init__(self):                     #-> calss instructor
 
         self.packages = []
         self.vehicles = []
 
-    def add_package(self, package):
+    def add_package(self, package):         #-> method to add package to packages list
         self.packages.append(package)
     
-    def add_vehicle(self, vehicle):
+    def add_vehicle(self, vehicle):         #-> method to add vehicle to vehicles list
         self.vehicles.append(vehicle)
 
-    def load_packages(self, packages):
+    def load_packages(self, packages):      #-> method to load packages data passed from GUI
         for package in packages:
             p = Package(id=package[0],x=package[1],y=package[2],weight=package[3],priority=package[4])
             self.packages.append(p)
     
-    def load_vehicles(self, vehicles):
+    def load_vehicles(self, vehicles):      #-> method to load vehicles data passed from GUI
         for vehicle in vehicles:
             v = Vehicle(id=vehicle[0],capacity=vehicle[1])
             self.vehicles.append(v)
     
-    def display_lists(self):
+    def display_lists(self):                #-> method to print packages and vehicles lists
         print("Packages:\n")
         for p in self.packages:
             p.display_package()

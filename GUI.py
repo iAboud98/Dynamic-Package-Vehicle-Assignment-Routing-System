@@ -1,10 +1,10 @@
 #Aboud Fialah           ID: 1220216         Section: 2
-#Aws Hammad             ID: -------         Section: 3   
+#Aws Hammad             ID: 1221697         Section: 3   
 
 import customtkinter as ctk
 from tkinter import filedialog
 
-def launch_gui():
+def launch_gui():       #main function
 
 # Theme Setup
     ctk.set_appearance_mode("dark")
@@ -473,7 +473,7 @@ def launch_gui():
 
     app.bind_all("<Button-1>", defocus_entries, add="+")
 
-    collected_data = {
+    collected_data = {          
         'packages': [], 
         'vehicles': [],
         'algorithm': None,
