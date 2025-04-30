@@ -4,22 +4,14 @@
 import random
 import math
 
+MAX_FLOAT = float('inf')
+
 def genetic_algorithm(manager, params):
 
     """
+
     params = {'population_size': 100, 'mutation_rate': 0.08, 'num_of_generations': 500}
 
-    *How is an individual represented?
-    ->
-
-    *What is the fitness function?
-    ->
-
-    *How are individuals selected?
-    ->
-
-    *How do individuals reproduce?
-    ->
     """
     
     packages = manager.packages
@@ -31,12 +23,17 @@ def genetic_algorithm(manager, params):
         individual = generate_individual(packages,vehicles)
         population.append(individual)
     
-    for p in population:
-        vehs, dis = evaluate_fitness_func(p, packages, vehicles)
-        print(vehs)
-        print(dis)
-        print()
-    
+
+    vehicles_assignment = assign_vehicles(population, packages, vehicles)
+
+    for assignment in vehicles_assignment:
+        print(assignment)
+        print(evaluate_fitness_func(assignment, packages))
+
+    print("====================================")
+
+    print(proportionate_selection(vehicles_assignment, packages))
+
 
 
 
@@ -82,53 +79,63 @@ def calculate_route_distance(packages):        #-> function to calculate route d
     return total_distance           #-> return total distance, but with out return distance !!
 
 def euclidean_distance(x1, y1, x2, y2):             #-> function to calculate the distance between two points
-    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)    
+
+def assign_vehicles(population, packages, vehicles):
+    
+    vehicle_assignments = []
+
+    for individual in population:
+
+        vehicle_assignment = {}         #-> keys : Vehicle ID, value : list of packages ID in vehicle
+
+        for v in vehicles:
+            vehicle_assignment[v.id] = []
+
+        
+        for pckg_idx, veh_id in enumerate(individual):
+            vehicle_assignment[veh_id].append(packages[pckg_idx].id)
+
+        for vehicle in vehicle_assignment:
+            random.shuffle(vehicle_assignment[vehicle])
+            
+        vehicle_assignments.append(vehicle_assignment)
+
+    return vehicle_assignments 
 
 
-def evaluate_fitness_func(indiviual, packages, vehicles):
+def evaluate_fitness_func(vehicle_assignment, packages):       #-> function to measure the fitness function for single individual
     
 
     total_distance = 0.0
     priority_violation = 0.0
 
 
-    vehicle_assignment = {}
-
-    for v in vehicles:
-        vehicle_assignment[v.id] = []
-
-    
-    for pckg_idx, veh_id in enumerate(indiviual):
-        vehicle_assignment[veh_id].append(packages[pckg_idx].id)
-
-
-    for veh_id, pckgs_id in vehicle_assignment.items():
-
-        random.shuffle(pckgs_id)
+    for veh_id, pckgs_id in vehicle_assignment.items():     
 
         pckgs = []
 
         for id in pckgs_id:
             pckgs.append(packages[id-1])
         
-        total_distance += calculate_route_distance(pckgs)
+        total_distance += calculate_route_distance(pckgs)   # -> calculate distance for each vehicle
 
-        priority_violation += calculate_priority_violation(pckgs, total_distance)
+        priority_violation += calculate_priority_violation(pckgs, total_distance)   #-> calculate priority violation value for each vehicle
 
         fitness_function = total_distance + priority_violation
 
 
-    return vehicle_assignment, fitness_function
+    return fitness_function
 
     
-def calculate_priority_violation (packages, route_distance):
+def calculate_priority_violation (packages, route_distance):    #-> function to calculate the priority violation
     
     if len(packages) == 1:
         return 0.0
     
     violation_value = 0.0
 
-    violation_unit = route_distance * 0.1
+    violation_unit = route_distance * 0.1   #-> make the penalty unit 10% of route distance 
 
 
     sorted_packages = sorted(packages, key=lambda p: p.priority)
@@ -140,3 +147,29 @@ def calculate_priority_violation (packages, route_distance):
             violation_value += priority_diff * violation_unit
     
     return violation_value
+
+def proportionate_selection(vehicle_assignments, packages):
+
+    fitness_values = [evaluate_fitness_func(vehicle_assignment, packages) for vehicle_assignment in vehicle_assignments]
+    
+    max_fitness = max(fitness_values)
+    adjusted_fitness = [max_fitness - f + 1 for f in fitness_values]  #->  +1 to avoid zero division
+    
+    scaled_fitness = [f ** 2 for f in adjusted_fitness]
+
+    total_fitness = sum(scaled_fitness)
+    
+    probabilities = [f/total_fitness for f in adjusted_fitness]
+    
+    selected_parents = []
+    for _ in range(len(vehicle_assignments)):
+        r = random.random()
+        cumulative_prob = 0.0
+        
+        for i, prob in enumerate(probabilities):
+            cumulative_prob += prob
+            if r <= cumulative_prob:
+                selected_parents.append(vehicle_assignments[i])
+                break
+    
+    return selected_parents
