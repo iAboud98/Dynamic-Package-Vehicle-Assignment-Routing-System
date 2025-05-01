@@ -26,14 +26,6 @@ def genetic_algorithm(manager, params):
 
     vehicles_assignment = assign_vehicles(population, packages, vehicles)
 
-    print("parent1 -> ", vehicles_assignment[0])    
-    print("parent2 -> ", vehicles_assignment[1])
-
-
-    child1, child2 = crossover(vehicles_assignment[0], vehicles_assignment[1], vehicles, packages)
-
-    print("child1 -> ", child1)
-    print("child2 -> ", child2)
 
 
 def generate_individual(packages, vehicles):        #-> function to generate individuals
@@ -215,3 +207,36 @@ def crossover(parent1, parent2, vehicles, packages):
         child2['remaining_caps'][child2_veh] -= pkg.weight
 
     return child1['assign'], child2['assign']
+
+
+def mutate(assignment, vehicles, packages, mutation_rate):
+
+    if random.random() > mutation_rate:
+        return assignment
+    
+    all_packages = []
+    for veh_id, pkgs in assignment.items():
+        all_packages.extend([(pkg_id, veh_id) for pkg_id in pkgs])
+    
+    if not all_packages:
+        return assignment
+    
+    pkg_id, current_veh = random.choice(all_packages)
+    pkg = next(p for p in packages if p.id == pkg_id)
+    
+    possible_vehicles = [
+        v.id for v in vehicles 
+        if v.id != current_veh and
+        (sum(p.weight for p in packages if p.id in assignment[v.id])) + pkg.weight <= v.capacity
+    ]
+    
+    if not possible_vehicles:
+        return assignment  
+        
+    new_veh = random.choice(possible_vehicles)
+    
+    mutated = {v_id: pkgs.copy() for v_id, pkgs in assignment.items()}
+    mutated[current_veh].remove(pkg_id)
+    mutated[new_veh].append(pkg_id)
+    
+    return mutated
