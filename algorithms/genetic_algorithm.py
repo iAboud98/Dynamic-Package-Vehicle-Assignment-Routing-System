@@ -26,15 +26,14 @@ def genetic_algorithm(manager, params):
 
     vehicles_assignment = assign_vehicles(population, packages, vehicles)
 
-    for assignment in vehicles_assignment:
-        print(assignment)
-        print(evaluate_fitness_func(assignment, packages))
-
-    print("====================================")
-
-    print(proportionate_selection(vehicles_assignment, packages))
+    print("parent1 -> ", vehicles_assignment[0])    
+    print("parent2 -> ", vehicles_assignment[1])
 
 
+    child1, child2 = crossover(vehicles_assignment[0], vehicles_assignment[1], vehicles, packages)
+
+    print("child1 -> ", child1)
+    print("child2 -> ", child2)
 
 
 def generate_individual(packages, vehicles):        #-> function to generate individuals
@@ -173,3 +172,46 @@ def proportionate_selection(vehicle_assignments, packages):
                 break
     
     return selected_parents
+
+def crossover(parent1, parent2, vehicles, packages):
+
+    child1 = {
+        'assign': {v.id: [] for v in vehicles},
+        'remaining_caps': {v.id: v.capacity for v in vehicles}
+    }
+
+    child2 = {
+        'assign': {v.id: [] for v in vehicles},
+        'remaining_caps': {v.id: v.capacity for v in vehicles}
+    }
+
+    all_pkg_ids = [p.id for p in packages]
+    random.shuffle(all_pkg_ids)
+
+    for pkg_id in all_pkg_ids:
+        pkg = next(p for p in packages if p.id == pkg_id)
+        
+        p1_vehs = [v_id for v_id in parent1 if 
+                  pkg_id in parent1[v_id] and 
+                  child1['remaining_caps'][v_id] >= pkg.weight]
+        
+        p2_vehs = [v_id for v_id in parent2 if 
+                  pkg_id in parent2[v_id] and 
+                  child2['remaining_caps'][v_id] >= pkg.weight]
+
+        all_vehs = [v.id for v in vehicles if child1['remaining_caps'][v.id] >= pkg.weight]
+        
+        if random.random() < 0.5:
+            child1_veh = random.choice(p1_vehs) if p1_vehs else random.choice(all_vehs)
+            child2_veh = random.choice(p2_vehs) if p2_vehs else random.choice(all_vehs)
+        else:
+            child1_veh = random.choice(p2_vehs) if p2_vehs else random.choice(all_vehs)
+            child2_veh = random.choice(p1_vehs) if p1_vehs else random.choice(all_vehs)
+        
+        child1['assign'][child1_veh].append(pkg_id)
+        child1['remaining_caps'][child1_veh] -= pkg.weight
+        
+        child2['assign'][child2_veh].append(pkg_id)
+        child2['remaining_caps'][child2_veh] -= pkg.weight
+
+    return child1['assign'], child2['assign']
