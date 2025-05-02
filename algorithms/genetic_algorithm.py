@@ -14,17 +14,74 @@ def genetic_algorithm(manager, params):
 
     """
     
-    packages = manager.packages
-    vehicles = manager.vehicles
+    # packages = manager.packages
+    # vehicles = manager.vehicles
 
-    population = []
+    # population = []
 
-    for _ in range(params["population_size"]):
-        individual = generate_individual(packages,vehicles)
-        population.append(individual)
+    # for _ in range(params["population_size"]):
+    #     individual = generate_individual(packages,vehicles)
+    #     population.append(individual)
     
 
-    vehicles_assignment = assign_vehicles(population, packages, vehicles)
+    # vehicles_assignment = assign_vehicles(population, packages, vehicles)
+
+    packages = manager.packages
+    vehicles = manager.vehicles
+    
+    # Initialize population
+    population = [generate_individual(packages, vehicles) 
+                 for _ in range(params["population_size"])]
+    
+    best_solution = None
+    best_fitness = float('inf')
+    
+    assignments = [assign_vehicles([ind], packages, vehicles)[0] for ind in population]
+    
+    
+    for generation in range(params["num_of_generations"]):
+
+        fitnesses = [evaluate_fitness_func(assn, packages) for assn in assignments]    
+
+        current_best_idx = min(range(len(fitnesses)), key=lambda i: fitnesses[i])
+        
+        if fitnesses[current_best_idx] < best_fitness:
+            best_fitness = fitnesses[current_best_idx]
+            best_solution = assignments[current_best_idx]
+        
+
+        parents = proportionate_selection(assignments, fitnesses) #-> returns list of vehicle assignments
+
+        offspring = []
+        for i in range(0, len(parents)-1, 2):
+            child1, child2 = crossover(parents[i], parents[i+1], vehicles, packages)
+            offspring.extend([child1, child2])
+        
+        
+        
+        
+        # Mutation
+        offspring = [mutate(child, vehicles, packages, params["mutation_rate"]) 
+                     for child in offspring]
+        
+        # Elitism: Keep top 10% of solutions
+        # elite_size = max(1, int(0.1 * len(population)))
+        # elite_indices = sorted(range(len(fitnesses)), key=lambda i: fitnesses[i])[:elite_size]
+        # population = [population[i] for i in elite_indices] + offspring[:len(population)-elite_size]
+        if generation % 50 == 0:
+            print(assignments)
+
+            assignments = offspring
+
+            print(assignments)
+        # Print progress
+        if generation % 50 == 0:
+            avg_fitness = sum(fitnesses) / len(fitnesses)
+            print(f"Gen {generation}: Best={best_fitness:.2f}, Avg={avg_fitness:.2f}")
+    
+    return best_solution
+
+
 
 
 
@@ -139,27 +196,36 @@ def calculate_priority_violation (packages, route_distance):    #-> function to 
     
     return violation_value
 
-def proportionate_selection(vehicle_assignments, packages):
+def proportionate_selection(vehicle_assignments, fitnesses):
 
-    fitness_values = [evaluate_fitness_func(vehicle_assignment, packages) for vehicle_assignment in vehicle_assignments]
+    # fitness_values = [evaluate_fitness_func(vehicle_assignment, packages) for vehicle_assignment in vehicle_assignments]
     
-    max_fitness = max(fitness_values)
-    adjusted_fitness = [max_fitness - f + 1 for f in fitness_values]  #->  +1 to avoid zero division
+    max_fitness = max(fitnesses)
+    adjusted_fitness = [max_fitness - f + 1 for f in fitnesses]  #->  +1 to avoid zero division
     
     scaled_fitness = [f ** 2 for f in adjusted_fitness]
 
     total_fitness = sum(scaled_fitness)
     
-    probabilities = [f/total_fitness for f in adjusted_fitness]
+    probabilities = [f/total_fitness for f in scaled_fitness]
+
+    # if g ==0:
+    #     for p in probabilities:
+    #         print("p-> ",p)
+    
+    r = sum(probabilities)/len(probabilities)
     
     selected_parents = []
     for _ in range(len(vehicle_assignments)):
-        r = random.random()
-        cumulative_prob = 0.0
-        
+
         for i, prob in enumerate(probabilities):
-            cumulative_prob += prob
-            if r <= cumulative_prob:
+            # if g == 0:
+            #         print("asssignment-> ", vehicle_assignments[i])
+            #         print("r -> ",r)
+            #         print("prop -> ", prob)
+                    # print("com_prop -> ", cumulative_prob)
+                    # print()
+            if r <= prob:
                 selected_parents.append(vehicle_assignments[i])
                 break
     
