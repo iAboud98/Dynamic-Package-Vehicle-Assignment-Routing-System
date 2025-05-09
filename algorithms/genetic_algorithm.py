@@ -1,308 +1,330 @@
 #Aboud Fialah           ID: 1220216         Section: 2
-#Aws Hammad             ID: 1221697         Section: 3
+#Aws Hammad             ID: 1221697         Section: 3  
 
 import random
 import math
+from copy import deepcopy
+from typing import List, Dict, Tuple
+
+from vehicle import Vehicle
+from package import Package
 
 MAX_FLOAT = float('inf')
 
-def genetic_algorithm(manager, params):
-
-    """
-
-    params = {'population_size': 100, 'mutation_rate': 0.08, 'num_of_generations': 500}
-
-    """
-    
-    # packages = manager.packages
-    # vehicles = manager.vehicles
-
-    # population = []
-
-    # for _ in range(params["population_size"]):
-    #     individual = generate_individual(packages,vehicles)
-    #     population.append(individual)
-    
-
-    # vehicles_assignment = assign_vehicles(population, packages, vehicles)
-
-    packages = manager.packages
-    vehicles = manager.vehicles
-    
-    # Initialize population
-    population = [generate_individual(packages, vehicles) 
-                 for _ in range(params["population_size"])]
-    
-    best_solution = None
-    best_fitness = float('inf')
-    
-    assignments = [assign_vehicles([ind], packages, vehicles)[0] for ind in population]
-    
-    
-    for generation in range(params["num_of_generations"]):
-
-        fitnesses = [evaluate_fitness_func(assn, packages) for assn in assignments]    
-
-        current_best_idx = min(range(len(fitnesses)), key=lambda i: fitnesses[i])
-        
-        if fitnesses[current_best_idx] < best_fitness:
-            best_fitness = fitnesses[current_best_idx]
-            best_solution = assignments[current_best_idx]
-        
-
-        parents = proportionate_selection(assignments, fitnesses) #-> returns list of vehicle assignments
-
-        offspring = []
-        for i in range(0, len(parents)-1, 2):
-            child1, child2 = crossover(parents[i], parents[i+1], vehicles, packages)
-            offspring.extend([child1, child2])
-        
-        
-        
-        
-        # Mutation
-        offspring = [mutate(child, vehicles, packages, params["mutation_rate"]) 
-                     for child in offspring]
-        
-        # Elitism: Keep top 10% of solutions
-        # elite_size = max(1, int(0.1 * len(population)))
-        # elite_indices = sorted(range(len(fitnesses)), key=lambda i: fitnesses[i])[:elite_size]
-        # population = [population[i] for i in elite_indices] + offspring[:len(population)-elite_size]
-        if generation % 50 == 0:
-            print(assignments)
-
-            assignments = offspring
-
-            print(assignments)
-        # Print progress
-        if generation % 50 == 0:
-            avg_fitness = sum(fitnesses) / len(fitnesses)
-            print(f"Gen {generation}: Best={best_fitness:.2f}, Avg={avg_fitness:.2f}")
-    
-    return best_solution
-
-
-
-
-
-def generate_individual(packages, vehicles):        #-> function to generate individuals
-    
-    individual = []                # -> item_index refers to (package_id-1), item refers to the vehicle id storing the package
-    remaining_caps = [vehicle.capacity for vehicle in vehicles]     #-> we don't want to update on original capacities
-
-    for package in packages:
-
-        valid_vehicles_indices = []         #-> list contains vehicles that package fits in
-
-        for i, capacity in enumerate (remaining_caps):
-            if capacity >= package.weight:
-                valid_vehicles_indices.append(i)
-        
-        if not valid_vehicles_indices:
-            print("\n**Wight of Package > Vehicle capacity**\n")
-            return []
-        
-        chosen_veh_idx = random.choice(valid_vehicles_indices)
-
-        remaining_caps[chosen_veh_idx] -= package.weight
-        individual.append(vehicles[chosen_veh_idx].id)
-    
-    return individual
-
-
-
-def calculate_route_distance(packages):        #-> function to calculate route distance for vehicle
-
+def calculate_route_distance(packages: List[Package]) -> float:
+    """Total path length: depot → each package in order → depot."""
     if not packages:
         return 0.0
+    dist = 0.0
+    x0, y0 = 0.0, 0.0
+    for pkg in packages:
+        dist += math.hypot(pkg.x - x0, pkg.y - y0)
+        x0, y0 = pkg.x, pkg.y
+    dist += math.hypot(x0, y0)  # back to depot at (0,0)
+    return dist
 
-    current_pos = [0,0]             #-> Shop location 
-    total_distance = 0.0            #-> initialize distance
-
-    for package in packages:
-        distance = euclidean_distance(current_pos[0], current_pos[1], package.x, package.y)
-        current_pos = [package.x, package.y]
-        total_distance += distance
-    
-    return total_distance           #-> return total distance, but with out return distance !!
-
-def euclidean_distance(x1, y1, x2, y2):             #-> function to calculate the distance between two points
-    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)    
-
-def assign_vehicles(population, packages, vehicles):
-    
-    vehicle_assignments = []
-
-    for individual in population:
-
-        vehicle_assignment = {}         #-> keys : Vehicle ID, value : list of packages ID in vehicle
-
-        for v in vehicles:
-            vehicle_assignment[v.id] = []
-
-        
-        for pckg_idx, veh_id in enumerate(individual):
-            vehicle_assignment[veh_id].append(packages[pckg_idx].id)
-
-        for vehicle in vehicle_assignment:
-            random.shuffle(vehicle_assignment[vehicle])
-            
-        vehicle_assignments.append(vehicle_assignment)
-
-    return vehicle_assignments 
-
-
-def evaluate_fitness_func(vehicle_assignment, packages):       #-> function to measure the fitness function for single individual
-    
-
-    total_distance = 0.0
-    priority_violation = 0.0
-
-
-    for veh_id, pckgs_id in vehicle_assignment.items():     
-
-        pckgs = []
-
-        for id in pckgs_id:
-            pckgs.append(packages[id-1])
-        
-        total_distance += calculate_route_distance(pckgs)   # -> calculate distance for each vehicle
-
-        priority_violation += calculate_priority_violation(pckgs, total_distance)   #-> calculate priority violation value for each vehicle
-
-        fitness_function = total_distance + priority_violation
-
-
-    return fitness_function
-
-    
-def calculate_priority_violation (packages, route_distance):    #-> function to calculate the priority violation
-    
-    if len(packages) == 1:
+def calculate_priority_violation(packages: List[Package], route_distance: float) -> float:
+    """Penalty if higher-priority packages are served later."""
+    if len(packages) < 2:
         return 0.0
-    
-    violation_value = 0.0
+    unit = route_distance * 0.1
+    violation = 0.0
+    sorted_pkgs = sorted(packages, key=lambda p: p.priority)
+    for idx, actual in enumerate(packages):
+        correct = sorted_pkgs[idx]
+        if actual.priority > correct.priority:
+            violation += (actual.priority - correct.priority) * unit
+    return violation
 
-    violation_unit = route_distance * 0.1   #-> make the penalty unit 10% of route distance 
+def generate_individual(packages: List[Package], vehicles: List[Vehicle]) -> List[int]:
+    """
+    Build a feasible assignment by first‐fit‐decreasing:
+      1. Sort packages by weight descending.
+      2. For each package, pick a random vehicle that still has room.
+    This guarantees a full-length gene whenever sum(weights) <= sum(capacities).
+    """
+    # 1) Determine the order in which to place packages: heaviest first
+    pkg_indices = sorted(
+        range(len(packages)),
+        key=lambda i: packages[i].weight,
+        reverse=True
+    )
+
+    remaining = [v.capacity for v in vehicles]
+    gene = [None] * len(packages)
+
+    # 2) Assign each package in that order
+    for idx in pkg_indices:
+        w = packages[idx].weight
+        # find all vehicles that still fit this package
+        feasible = [i for i, cap in enumerate(remaining) if cap >= w]
+        if not feasible:
+            # Should never happen if total weight <= total capacity
+            # but just in case, pick the one with max remaining
+            feasible = [max(range(len(vehicles)), key=lambda i: remaining[i])]
+        choice = random.choice(feasible)
+        gene[idx] = vehicles[choice].id
+        remaining[choice] -= w
+
+    # 3) As a sanity check, fill any leftover None’s (shouldn’t be any)
+    for i in range(len(gene)):
+        if gene[i] is None:
+            gene[i] = random.choice(vehicles).id
+
+    return gene
 
 
-    sorted_packages = sorted(packages, key=lambda p: p.priority)
+def assign_vehicles(
+    population: List[List[int]],
+    packages: List[Package],
+    vehicles: List[Vehicle]
+) -> List[Dict[int, List[int]]]:
+    """Map each chromosome into { vehicle_id: [package_id,...] }."""
+    out = []
+    for chrom in population:
+        d = {v.id: [] for v in vehicles}
+        for pkg_idx, vid in enumerate(chrom):
+            d[vid].append(packages[pkg_idx].id)
+        for pkgs in d.values():
+            random.shuffle(pkgs)
+        out.append(d)
+    return out
 
-    
-    for idx, pckg in enumerate(sorted_packages):
-        if packages[idx].priority > pckg.priority:
-            priority_diff = packages[idx].priority - pckg.priority
-            violation_value += priority_diff * violation_unit
-    
-    return violation_value
+def evaluate_fitness(
+    assignment: Dict[int, List[int]],
+    packages: List[Package]
+) -> float:
+    """Distance + priority violation across all routes."""
+    total_d, total_v = 0.0, 0.0
+    for pkg_ids in assignment.values():
+        pkgs = [packages[i-1] for i in pkg_ids]
+        rd = calculate_route_distance(pkgs)
+        total_d += rd
+        total_v += calculate_priority_violation(pkgs, rd)
+    return total_d + total_v
 
-def proportionate_selection(vehicle_assignments, fitnesses):
+def proportionate_selection(
+    assignments: List[Dict[int,List[int]]],
+    fitnesses: List[float],
+    k: int
+) -> List[Dict[int,List[int]]]:
+    """Roulette-wheel (lower fitness gets higher weight)."""
+    worst = max(fitnesses)
+    weights = [worst - f + 1e-6 for f in fitnesses]
+    return random.choices(assignments, weights=weights, k=k)
 
-    # fitness_values = [evaluate_fitness_func(vehicle_assignment, packages) for vehicle_assignment in vehicle_assignments]
-    
-    max_fitness = max(fitnesses)
-    adjusted_fitness = [max_fitness - f + 1 for f in fitnesses]  #->  +1 to avoid zero division
-    
-    scaled_fitness = [f ** 2 for f in adjusted_fitness]
+def crossover(
+    p1: Dict[int, List[int]],
+    p2: Dict[int, List[int]],
+    vehicles: List[Vehicle],
+    packages: List[Package]
+) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
+    """Uniform‐style crossover with separate fallbacks so we never pick from an empty list."""
+    child1 = {v.id: [] for v in vehicles}
+    child2 = {v.id: [] for v in vehicles}
+    cap1 = {v.id: v.capacity for v in vehicles}
+    cap2 = {v.id: v.capacity for v in vehicles}
 
-    total_fitness = sum(scaled_fitness)
-    
-    probabilities = [f/total_fitness for f in scaled_fitness]
+    pkg_ids = [p.id for p in packages]
+    random.shuffle(pkg_ids)
 
-    # if g ==0:
-    #     for p in probabilities:
-    #         print("p-> ",p)
-    
-    r = sum(probabilities)/len(probabilities)
-    
-    selected_parents = []
-    for _ in range(len(vehicle_assignments)):
+    for pid in pkg_ids:
+        pkg = next(p for p in packages if p.id == pid)
+        w = pkg.weight
 
-        for i, prob in enumerate(probabilities):
-            # if g == 0:
-            #         print("asssignment-> ", vehicle_assignments[i])
-            #         print("r -> ",r)
-            #         print("prop -> ", prob)
-                    # print("com_prop -> ", cumulative_prob)
-                    # print()
-            if r <= prob:
-                selected_parents.append(vehicle_assignments[i])
-                break
-    
-    return selected_parents
+        # what each parent would assign, if still feasible
+        opts1 = [vid for vid in p1 if pid in p1[vid] and cap1[vid] >= w]
+        opts2 = [vid for vid in p2 if pid in p2[vid] and cap2[vid] >= w]
 
-def crossover(parent1, parent2, vehicles, packages):
+        # true “all‐feasible” lists for each child
+        all1 = [v.id for v in vehicles if cap1[v.id] >= w]
+        all2 = [v.id for v in vehicles if cap2[v.id] >= w]
 
-    child1 = {
-        'assign': {v.id: [] for v in vehicles},
-        'remaining_caps': {v.id: v.capacity for v in vehicles}
-    }
-
-    child2 = {
-        'assign': {v.id: [] for v in vehicles},
-        'remaining_caps': {v.id: v.capacity for v in vehicles}
-    }
-
-    all_pkg_ids = [p.id for p in packages]
-    random.shuffle(all_pkg_ids)
-
-    for pkg_id in all_pkg_ids:
-        pkg = next(p for p in packages if p.id == pkg_id)
-        
-        p1_vehs = [v_id for v_id in parent1 if 
-                  pkg_id in parent1[v_id] and 
-                  child1['remaining_caps'][v_id] >= pkg.weight]
-        
-        p2_vehs = [v_id for v_id in parent2 if 
-                  pkg_id in parent2[v_id] and 
-                  child2['remaining_caps'][v_id] >= pkg.weight]
-
-        all_vehs = [v.id for v in vehicles if child1['remaining_caps'][v.id] >= pkg.weight]
-        
+        # randomly decide swap‐or‐not for uniform crossover
         if random.random() < 0.5:
-            child1_veh = random.choice(p1_vehs) if p1_vehs else random.choice(all_vehs)
-            child2_veh = random.choice(p2_vehs) if p2_vehs else random.choice(all_vehs)
+            parent1_choices, fallback1 = opts1, all1
+            parent2_choices, fallback2 = opts2, all2
         else:
-            child1_veh = random.choice(p2_vehs) if p2_vehs else random.choice(all_vehs)
-            child2_veh = random.choice(p1_vehs) if p1_vehs else random.choice(all_vehs)
-        
-        child1['assign'][child1_veh].append(pkg_id)
-        child1['remaining_caps'][child1_veh] -= pkg.weight
-        
-        child2['assign'][child2_veh].append(pkg_id)
-        child2['remaining_caps'][child2_veh] -= pkg.weight
+            parent1_choices, fallback1 = opts2, all1
+            parent2_choices, fallback2 = opts1, all2
 
-    return child1['assign'], child2['assign']
+        # pick for child1
+        if parent1_choices:
+            v1 = random.choice(parent1_choices)
+        elif fallback1:
+            v1 = random.choice(fallback1)
+        else:
+            v1 = max(cap1, key=cap1.get)
 
+        # pick for child2
+        if parent2_choices:
+            v2 = random.choice(parent2_choices)
+        elif fallback2:
+            v2 = random.choice(fallback2)
+        else:
+            v2 = max(cap2, key=cap2.get)
 
-def mutate(assignment, vehicles, packages, mutation_rate):
+        # assign & decrement capacities
+        child1[v1].append(pid)
+        cap1[v1] -= w
+        child2[v2].append(pid)
+        cap2[v2] -= w
 
-    if random.random() > mutation_rate:
+    # shuffle intra‐vehicle orders
+    for d in (child1, child2):
+        for lst in d.values():
+            random.shuffle(lst)
+
+    return child1, child2
+
+def mutate(
+    assignment: Dict[int,List[int]],
+    vehicles: List[Vehicle],
+    packages: List[Package],
+    rate: float
+) -> Dict[int,List[int]]:
+    """Move one random package to a different feasible vehicle."""
+    if random.random()>rate:
         return assignment
-    
-    all_packages = []
-    for veh_id, pkgs in assignment.items():
-        all_packages.extend([(pkg_id, veh_id) for pkg_id in pkgs])
-    
-    if not all_packages:
-        return assignment
-    
-    pkg_id, current_veh = random.choice(all_packages)
-    pkg = next(p for p in packages if p.id == pkg_id)
-    
-    possible_vehicles = [
-        v.id for v in vehicles 
-        if v.id != current_veh and
-        (sum(p.weight for p in packages if p.id in assignment[v.id])) + pkg.weight <= v.capacity
+    pairs = [(pid,vid) for vid,pkgs in assignment.items() for pid in pkgs]
+    pid, old = random.choice(pairs)
+    pkg = next(p for p in packages if p.id==pid)
+    pkg_weights = {p.id: p.weight for p in packages}
+
+    viable = [
+        v.id for v in vehicles
+        if v.id != old and sum(pkg_weights.get(q, 0) for q in assignment[v.id]) + pkg.weight <= v.capacity
     ]
-    
-    if not possible_vehicles:
-        return assignment  
-        
-    new_veh = random.choice(possible_vehicles)
-    
-    mutated = {v_id: pkgs.copy() for v_id, pkgs in assignment.items()}
-    mutated[current_veh].remove(pkg_id)
-    mutated[new_veh].append(pkg_id)
-    
-    return mutated
+    if not viable:
+        return assignment
+    new_vid = random.choice(viable)
+    new = {vid:pkgs.copy() for vid,pkgs in assignment.items()}
+    new[old].remove(pid)
+    new[new_vid].append(pid)
+    return new
+
+def _repair_assignment(
+    assignment: Dict[int, List[int]],
+    vehicles: List[Vehicle],
+    packages: List[Package]
+) -> Dict[int, List[int]]:
+    """
+    Trim any overloads and re-place the dropped packages
+    into any vehicles that still have room.
+    """
+    pkg_map = {p.id: p for p in packages}
+    overflow = []
+
+    # 1) Remove packages from overloaded vehicles
+    for vid, pids in assignment.items():
+        cap = next(v.capacity for v in vehicles if v.id == vid)
+        total = sum(pkg_map[pid].weight for pid in pids)
+        if total > cap:
+            # pop random until under capacity
+            random.shuffle(pids)
+            while total > cap:
+                pid = pids.pop()
+                total -= pkg_map[pid].weight
+                overflow.append(pid)
+
+    # 2) Build up remaining-capacity map
+    rem_caps = {
+        v.id: v.capacity - sum(pkg_map[pid].weight for pid in assignment[v.id])
+        for v in vehicles
+    }
+
+    # 3) Re-insert each overflow package
+    for pid in overflow:
+        w = pkg_map[pid].weight
+        feas = [vid for vid, rc in rem_caps.items() if rc >= w]
+        if not feas:
+            # still no room? stick it into the vehicle with the _most_ free space (may go negative)
+            vid = max(rem_caps, key=rem_caps.get)
+        else:
+            vid = random.choice(feas)
+
+        assignment[vid].append(pid)
+        rem_caps[vid] -= w
+
+    return assignment
+
+def genetic_algorithm(manager, params: dict) -> Tuple[List[Vehicle], float]:
+    """
+    Returns:
+      - list of Vehicle objects with .packages filled
+      - total_cost (distance + priority penalties)
+    """
+    packages = manager.packages
+    vehicles = manager.vehicles
+    # drop any package too big for _any_ vehicle
+    max_cap = max(v.capacity for v in vehicles)
+    dropped = [p for p in packages if p.weight > max_cap]
+    if dropped:
+        for p in dropped:
+            raise ValueError(f"Could not assign package {p.id} (weight={p.weight}) to any vehicle.")
+        # now filter out the un-assignable ones
+        packages = [p for p in packages if p.weight <= max_cap]
+    P     = params.get("population_size", 100)
+    MR    = params.get("mutation_rate",    0.08)
+    G     = params.get("num_of_generations", 500)
+    ELITE = max(1, int(0.1 * P))
+
+    # 1) init population of chromosomes
+    pop: List[List[int]] = []
+    while len(pop) < P:
+        indiv = generate_individual(packages, vehicles)
+        if indiv:
+            pop.append(indiv)
+
+    # 2) map to dict‐assignments
+    assigns = assign_vehicles(pop, packages, vehicles)
+
+    best_assign, best_fit = None, MAX_FLOAT
+    for gen in range(G):
+        fits = [evaluate_fitness(a, packages) for a in assigns]
+        idx_sorted = sorted(range(P), key=lambda i: fits[i])
+
+        # keep elite
+        new_gen = [assigns[i] for i in idx_sorted[:ELITE]]
+        if fits[idx_sorted[0]] < best_fit:
+            best_fit, best_assign = fits[idx_sorted[0]], assigns[idx_sorted[0]]
+
+        # selection + crossover → offspring
+        parents = proportionate_selection(assigns, fits, P - ELITE)
+        for i in range(0, len(parents), 2):
+            c1, c2 = crossover(parents[i], parents[(i+1)%len(parents)],
+                               vehicles, packages)
+            new_gen.extend([c1, c2])
+
+        # mutation
+        assigns = [mutate(c, vehicles, packages, MR)
+                   for c in new_gen[:P]]
+        assigns = [
+            _repair_assignment(a, vehicles, packages)
+            for a in assigns
+        ]
+
+        if gen % 50 == 0:
+            avg = sum(fits)/P
+            #print(f"GA Gen {gen:4d} ▶ Best={best_fit:.2f}  Avg={avg:.2f}")
+
+    # 3) reconstruct Vehicle objects
+    final_vehicles = deepcopy(vehicles)
+    pkg_map = {p.id:p for p in packages}
+    for v in final_vehicles:
+        v.packages = [pkg_map[pid] for pid in best_assign[v.id]]
+    # 4) compute distances & total cost
+    for v in final_vehicles:
+        if v.packages:
+            x0, y0 = 0.0, 0.0
+            dist = 0.0
+            for p in v.packages:
+                dist += math.hypot(p.x - x0, p.y - y0)
+                x0, y0 = p.x, p.y
+            dist += math.hypot(x0, y0)
+            v.distance = dist
+        else:
+            v.distance = 0.0
+
+    total = sum(v.distance for v in final_vehicles)
+    return final_vehicles, total

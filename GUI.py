@@ -3,10 +3,11 @@
 
 import customtkinter as ctk
 from tkinter import filedialog
+import tkinter.messagebox as mb
 
 def launch_gui():       #main function
 
-# Theme Setup
+    # Theme Setup
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
 
@@ -36,6 +37,7 @@ def launch_gui():       #main function
     }
 
     def apply_colors():
+        #print(f"--- Applying colors for theme: {current_theme}, color: {current_color}")
         colors = theme_colors[current_color][current_theme]
         for btn in [add_package_btn, add_vehicle_btn, solve_btn, settings_btn]:
             btn.configure(fg_color=colors["button"], hover_color=colors["hover"])
@@ -64,6 +66,19 @@ def launch_gui():       #main function
                     child.configure(fg_color="red", hover_color="darkred", text_color="white")
                 else:
                     child.configure(fg_color=colors["button"], hover_color=colors["hover"], text_color=colors["text"])
+        # Update confirmed package rows
+        for row in package_scroll.winfo_children():
+            if getattr(row, "confirmed", False):
+                for widget in row.winfo_children():
+                    if isinstance(widget, ctk.CTkEntry):
+                        widget.configure(fg_color=get_locked_color(), text_color="gray")
+
+        # Update confirmed vehicle rows
+        for row in vehicle_scroll.winfo_children():
+            if getattr(row, "confirmed", False):
+                for widget in row.winfo_children():
+                    if isinstance(widget, ctk.CTkEntry):
+                        widget.configure(fg_color=get_locked_color(), text_color="gray")
 
     # Title
     title_frame = ctk.CTkFrame(app, fg_color="transparent")
@@ -82,6 +97,7 @@ def launch_gui():       #main function
     algo_label = ctk.CTkLabel(algo_frame, text="Choose your Algorithm:", font=("Courier", 20, "bold"))
     algo_label.pack(side="left", padx=(10, 20))
     algo_var = ctk.IntVar()
+    algo_var.trace_add("write", lambda *args: update_solve_button_state())
     ctk.CTkRadioButton(algo_frame, text="Genetic Algorithm", variable=algo_var, value=1).pack(side="left", padx=10)
     ctk.CTkRadioButton(algo_frame, text="Simulated Annealing", variable=algo_var, value=2).pack(side="left", padx=10)
 
@@ -92,13 +108,14 @@ def launch_gui():       #main function
     settings_dropdown.lift(app)
 
     def change_theme(choice):
-        global current_theme
+        nonlocal current_theme
         current_theme = choice
         ctk.set_appearance_mode(choice)
         apply_colors()
 
     def change_color(color_name):
-        global current_color
+        nonlocal current_color
+        #print(f"--- Changing color to: {color_name}") 
         current_color = color_name
         apply_colors()
         
@@ -132,7 +149,7 @@ def launch_gui():       #main function
             # write packages
             f.write("# packages: X Y Weight Priority\n")
             for row in package_scroll.winfo_children():
-                # children: [ID_label, X_entry, Y_entry, W_entry, P_entry, err_lbl, …]
+                # children
                 entries = row.winfo_children()[1:5]
                 vals = [e.get().strip() for e in entries]
                 f.write(" ".join(vals) + "\n")
@@ -160,7 +177,7 @@ def launch_gui():       #main function
             pkg_lines = lines[:sep]
             vh_lines  = lines[sep+1:]
         except ValueError:
-            # if no blank, assume half packages or guess by count?
+            # if no blank, assume half packages or guess by count
             # here: everything until a non‐4‐column line is packages
             pkg_lines, vh_lines = [], []
             for L in lines:
@@ -171,10 +188,11 @@ def launch_gui():       #main function
 
         # rebuild
         for L in pkg_lines:
-            x,y,w,p = L.split()
-            add_package_bar(x, y, w, p)
+            x, y, w, p = L.split()
+            add_package_bar(x, y, w, p, auto_confirm=True)
+
         for L in vh_lines:
-            add_vehicle_bar(L)
+            add_vehicle_bar(L, auto_confirm=True)
 
         update_package_ids()
         update_vehicle_ids()
@@ -242,12 +260,12 @@ def launch_gui():       #main function
         pk_rows = package_scroll.winfo_children()
         vh_rows = vehicle_scroll.winfo_children()
 
-        # **Is the package table “ready” to add another?**
+        # **Is the package table “ready” to add another?
         pkg_all_confirmed = bool(pk_rows) and all(r.confirmed for r in pk_rows)
         pkg_editing       = any(getattr(r, "editing", False) for r in pk_rows)
         pkg_ready         = pkg_all_confirmed and not pkg_editing
 
-        # **Is the vehicle table “ready” to add another?**
+        # **Is the vehicle table “ready” to add another?
         vh_all_confirmed = bool(vh_rows) and all(r.confirmed for r in vh_rows)
         vh_editing       = any(getattr(r, "editing", False) for r in vh_rows)
         vh_ready         = vh_all_confirmed and not vh_editing
@@ -257,9 +275,33 @@ def launch_gui():       #main function
         add_vehicle_btn.configure(state="normal" if vh_ready else "disabled")
 
         # Solve only when both are ready
-        solve_btn.configure(state="normal" if pkg_ready and vh_ready else "disabled")
+        update_solve_button_state()
+    def update_solve_button_state():
+        pk_rows = package_scroll.winfo_children()
+        vh_rows = vehicle_scroll.winfo_children()
+        
+        # Package table ready
+        pkg_ready = bool(pk_rows) and all(getattr(r, "confirmed", False) for r in pk_rows) and not any(getattr(r, "editing", False) for r in pk_rows)
+        
+        # Vehicle table ready
+        vh_ready = bool(vh_rows) and all(getattr(r, "confirmed", False) for r in vh_rows) and not any(getattr(r, "editing", False) for r in vh_rows)
 
-    def add_package_bar(x="", y="", w="", p=""):
+        # Algorithm selected
+        algo_chosen = algo_var.get() in (1, 2)
+
+        # Total weight and capacity check
+        try:
+            total_weight = sum(float(r.winfo_children()[3].get()) for r in pk_rows)
+            total_capacity = sum(float(r.winfo_children()[1].get()) for r in vh_rows)
+            weight_ok = total_weight <= total_capacity
+        except:
+            weight_ok = False
+
+        solve_btn.configure(
+            state="normal" if pkg_ready and vh_ready and algo_chosen and weight_ok else "disabled"
+        )
+
+    def add_package_bar(x="", y="", w="", p="", auto_confirm=False):
         row = ctk.CTkFrame(package_scroll)
         row.pack(pady=5, padx=5)
         row.confirmed = False
@@ -275,10 +317,10 @@ def launch_gui():       #main function
             (50,50,80,60)
         ):
             e = ctk.CTkEntry(row, placeholder_text=key, width=width)
-            # **insert any pre-existing value**  
+            # insert any pre-existing value
             if val:
                 e.insert(0, val)
-            # then stash its “normal” colors  
+            # then stash its normal colors  
             e._orig_fg_color   = e.cget("fg_color")
             e._orig_text_color = e.cget("text_color")
             e.pack(side="left", padx=5)
@@ -360,11 +402,14 @@ def launch_gui():       #main function
 
         for e in entries.values():
             e.bind("<Return>", lambda ev, fn=on_confirm: fn())
+        
+        if auto_confirm:
+            on_confirm()
 
         update_package_ids()
         update_add_buttons_state()
 
-    def add_vehicle_bar(cap=""):
+    def add_vehicle_bar(cap="", auto_confirm=False):
         row = ctk.CTkFrame(vehicle_scroll)
         row.pack(pady=5, padx=5)
         row.confirmed = False
@@ -444,6 +489,9 @@ def launch_gui():       #main function
         edit_btn.pack_forget()
 
         cap_entry.bind("<Return>", lambda ev, fn=on_confirm: fn())
+        
+        if auto_confirm:
+            on_confirm()
 
         update_vehicle_ids()
         update_add_buttons_state()
@@ -460,6 +508,8 @@ def launch_gui():       #main function
     apply_colors()
 
     def defocus_entries(event):
+        if event.widget.winfo_toplevel() is not app:
+            return
         widget = event.widget
         temp = widget
         while temp:
@@ -508,12 +558,304 @@ def launch_gui():       #main function
         return package_data, vehicle_data, algorithm
     
     def solve_callback():
-        """Called when Solve button is pressed"""
+        # 1) collect & optimize
         collected_data['packages'], collected_data['vehicles'], collected_data['algorithm'] = collect_data()
-        app.quit()  # Close the GUI window
-        app.destroy()
+        from loadManager import LoadManager
+        manager = LoadManager()
+        manager.load_packages(collected_data['packages'])
+        manager.load_vehicles(collected_data['vehicles'])
+        params = {
+            "GA": {'population_size': 150, 'mutation_rate': 0.02, 'num_of_generations': 1000},
+            "SA": {'initial_temp':1000, 'cooling_rate':0.96, 'stopping_temp':1, 'num_of_iterations':100}
+        }
+        
+        try:
+            result = manager.optimize(collected_data['algorithm'], params)
+        except ValueError as e:
+            mb.showerror("Assignment Error", str(e))
+            return
+        
+        if isinstance(result, tuple):
+            vehicles, total_cost = result
+        else:
+            vehicles, total_cost = result, sum(v.distance for v in result)
+
+        active_vs = [v for v in vehicles if v.packages]
+        if not active_vs:
+            print("⚠ No routes to animate.")
+            return
+
+        # 2) make the toplevel & canvas
+        from tkinter import Canvas
+        anim_win = ctk.CTkToplevel(app)
+        anim_win.title("SmartDrop SA Animation")
+        try:
+            anim_win.state('zoomed')
+        except:
+            anim_win.attributes('-zoomed', True)
+        anim_win.transient(app)
+        anim_win.grab_set()
+        anim_win.lift()
+        anim_win.focus_force()
+
+        # 3) create a fixed-size canvas and center it
+        CANVAS_W, CANVAS_H = 2450, 1400
+        canvas = Canvas(
+            anim_win,
+            width=CANVAS_W, height=CANVAS_H,
+            bg="#1F2937",
+            highlightthickness=1,
+            highlightbackground="#374151"
+        )
+        canvas.place(relx=0.5, rely=0.43, anchor="center")
+        
+        # Vehicle list frame (initially hidden)
+        list_frame = ctk.CTkFrame(anim_win, fg_color="transparent")
+        is_list_visible = [False]  # mutable flag to track visibility
+
+        def toggle_vehicle_panel():
+            if is_list_visible[0]:
+                list_frame.place_forget()
+                is_list_visible[0] = False
+                toggle_btn.configure(text="📋 Show Vehicles")
+            else:
+                list_frame.place(relx=0.01, rely=0.01, anchor="nw")
+                is_list_visible[0] = True
+                toggle_btn.configure(text="📋 Hide Vehicles")
+                
+        # Vehicle list header & total 
+        colors = [
+            "#e6194B", "#3cb44b", "#ffe119", "#4363d8",
+            "#f58231", "#911eb4", "#42d4f4", "#f032e6",
+            "#bfef45", "#fabebe", "#469990", "#e6beff",
+            "#9A6324", "#fffac8", "#800000", "#aaffc3",
+            "#000075", "#a9a9a9"
+        ]
+        ctk.CTkLabel(
+            list_frame,
+            text="Vehicles",
+            font=("Courier",16,"bold"),
+            text_color="white"
+        ).pack(pady=(5,2), padx=10)
+
+        total_distance = sum(v.distance for v in vehicles)
+        ctk.CTkLabel(
+            list_frame,
+            text=f"Total Distance: {total_distance:.2f}",
+            font=("Courier",14),
+            text_color="#AAAAAA"
+        ).pack(pady=(0,10), padx=10)
+
+        # Map each active vehicle to its color 
+        color_map = {
+            v.id: colors[i % len(colors)]
+            for i, v in enumerate(active_vs)
+        }
+
+        # 4) List every vehicle sorted by ID 
+        for v in sorted(vehicles, key=lambda v: v.id):
+            row = ctk.CTkFrame(list_frame, fg_color="transparent")
+            row.pack(anchor="w", pady=3, padx=10)
+
+            # pick its assigned color if it ran, or grey if unused
+            col = color_map.get(v.id, "gray")
+            circle = ctk.CTkLabel(
+                row,
+                text="🚚",
+                font=("Arial",16),
+                text_color=col
+            )
+            circle.pack(side="left", padx=(0,6))
+
+            pkg_count = len(v.packages)
+            label_text = f"Vehicle {v.id}   |   📦 {pkg_count}   |   📏 {v.distance:.2f}"
+            ctk.CTkLabel(
+                row,
+                text=label_text,
+                font=("Courier",14),
+                text_color="white"
+            ).pack(side="left")
         
 
+        # 5) compute scale & origin based on the canvas size
+        world_size = 100
+        step_units  = 10
+
+        # use just a 5px margin on top/bottom/left
+        margin = 5
+        grid_w = 2100 - 2 * margin
+        grid_h = 1200 - 2 * margin
+        grid_origin_x = (CANVAS_W - grid_w) // 2
+        grid_origin_y = (CANVAS_H - grid_h) // 2
+        scale_x = grid_w / world_size
+        scale_y = grid_h / world_size
+        origin_px = (grid_origin_x, grid_origin_y + grid_h)
+        # grid spacing in pixels
+        step_px_x = step_units * scale_x
+        step_px_y = step_units * scale_y
+        n_lines = int(world_size // step_units) + 1
+
+        # Draw vertical grid lines + X labels
+        for i in range(n_lines):
+            x = grid_origin_x + i * step_px_x
+            canvas.create_line(x, grid_origin_y, x, grid_origin_y + grid_h, fill="white", width=2)
+            
+            # X-axis label (bottom)
+            canvas.create_text(
+                x, grid_origin_y + grid_h + 15,  # a bit below the bottom line
+                text=str(i * step_units), fill="white", font=("Courier", 12)
+            )
+
+        # 6) Draw horizontal grid lines + Y labels
+        for i in range(n_lines):
+            y = grid_origin_y + i * step_px_y
+            canvas.create_line(grid_origin_x, y, grid_origin_x + grid_w, y, fill="white", width=2)
+        
+            # Y-axis label (left)
+            canvas.create_text(
+                grid_origin_x - 15, y,  # a bit to the left of the line
+                text=str((n_lines - 1 - i) * step_units), fill="white", font=("Courier", 12)
+            )
+        canvas.create_text(CANVAS_W/2, CANVAS_H-30, text="X coordinate", fill="white", font=("Courier",14))
+        canvas.create_text(50, CANVAS_H/2, text="Y coordinate", fill="white", font=("Courier",14), angle=90)
+        canvas.create_text(CANVAS_W/2, 55, text="SmartDrop Animation", fill="white", font=("Courier",20,"bold"))
+
+        for idx, v in enumerate(active_vs):
+            color = colors[idx % len(colors)]
+            for p in v.packages:
+                px = origin_px[0] + p.x * scale_x
+                py = origin_px[1] - p.y * scale_y  # invert Y for canvas
+
+                # Draw the package as a colored dot
+                canvas.create_oval(px - 4, py - 4, px + 4, py + 4, fill=color, outline="")
+
+                # Add a label for the package ID
+                canvas.create_text(px, py - 15, text=str(p.id), font=("Helvetica", 14), fill=color)
+        # 7) draw empty vehicles at depot
+        for v in vehicles:
+            if not v.packages:
+                x0, y0 = origin_px
+                canvas.create_oval(x0-8, y0-8, x0+8, y0+8, fill="gray", outline="")
+                canvas.create_text(x0, y0-16, text=f"V{v.id}", font=("Helvetica",10), fill="white")
+
+        # 8) prepare each active vehicle’s path & shape
+        colors = [
+            "#e6194B", "#3cb44b", "#ffe119", "#4363d8", "#f58231", "#911eb4",
+            "#42d4f4", "#f032e6", "#bfef45", "#fabebe", "#469990", "#e6beff",
+            "#9A6324", "#fffac8", "#800000", "#aaffc3", "#000075", "#a9a9a9"
+        ]
+        veh_anim = []
+        for idx, v in enumerate(active_vs):
+            world_path = [(0,0)] + [(p.x, p.y) for p in v.packages] + [(0,0)]
+            px = origin_px[0] + x * scale_x
+            py = origin_px[1] - y * scale_y
+            pixel_path = []
+            color = colors[idx % len(colors)]
+
+            for x, y in world_path:
+                px = origin_px[0] + x * scale_x
+                py = origin_px[1] - y * scale_y
+                pixel_path.append((px, py))
+
+            x0, y0 = pixel_path[0]
+            shape = canvas.create_oval(x0-12, y0-12, x0+12, y0+12, fill=color, outline="")
+            label = canvas.create_text(x0, y0-16, text=f"V{v.id}", font=("Helvetica",12,"bold"), fill="white")
+
+            veh_anim.append({"shape": shape, "label": label, "path": pixel_path, "step": 0, "color": color, "trail": []})
+
+        # 9) animation loop
+        def move():
+            running = False
+            for data in veh_anim:
+                path, s = data["path"], data["step"]
+                if s < len(path) - 1:
+                    running = True
+                    x1, y1, x2, y2 = canvas.coords(data["shape"])
+                    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+                    tx, ty = path[s + 1]
+                    dx, dy = (tx - cx) / 10, (ty - cy) / 10
+                    canvas.move(data["shape"], dx, dy)
+                    canvas.move(data["label"], dx, dy)
+                    canvas.update_idletasks()
+                    if abs(tx - cx) < 2 and abs(ty - cy) < 2:
+                        data["step"] += 1
+            if running:
+                anim_win.after(50, move)
+        def reset_and_replay():
+            for data in veh_anim:
+                start_x, start_y = data["path"][0]
+                x1, y1, x2, y2 = canvas.coords(data["shape"])
+                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+                dx = start_x - cx
+                dy = start_y - cy
+                canvas.move(data["shape"], dx, dy)
+                canvas.move(data["label"], dx, dy)
+                data["step"] = 0
+            move_controlled()
+            
+        is_paused = [False]  # mutable wrapper
+
+        def toggle_pause():
+            is_paused[0] = not is_paused[0]
+            pause_btn.configure(text="▶️ Resume" if is_paused[0] else "⏸️ Pause")
+
+        def move_controlled():
+            if is_paused[0]:
+                anim_win.after(100, move_controlled)
+                return
+
+            running = False
+            for data in veh_anim:
+                path, s = data["path"], data["step"]
+                if s < len(path) - 1:
+                    running = True
+                    x1, y1, x2, y2 = canvas.coords(data["shape"])
+                    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+                    tx, ty = path[s + 1]
+                    dx, dy = (tx - cx) / 10, (ty - cy) / 10
+                    canvas.move(data["shape"], dx, dy)
+                    trail_start = (cx, cy)
+                    trail_end = (cx + dx, cy + dy)
+                    line = canvas.create_line(*trail_start, *trail_end, fill=data["color"], width=2)
+                    data["trail"].append(line)
+                    canvas.move(data["label"], dx, dy)
+                    canvas.update_idletasks()
+                    if abs(tx - cx) < 2 and abs(ty - cy) < 2:
+                        data["step"] += 1
+            if running:
+                anim_win.after(50, move_controlled)
+
+        def reset_and_replay():
+            for data in veh_anim:
+                start_x, start_y = data["path"][0]
+                x1, y1, x2, y2 = canvas.coords(data["shape"])
+                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+                dx = start_x - cx
+                dy = start_y - cy
+                canvas.move(data["shape"], dx, dy)
+                canvas.move(data["label"], dx, dy)
+                data["step"] = 0
+            is_paused[0] = False
+            pause_btn.configure(text="⏸️ Pause")
+            move_controlled()
+
+        # Control Button Layout
+        controls_frame = ctk.CTkFrame(anim_win, fg_color="transparent")
+        controls_frame.place(relx=0.5, rely=0.9, anchor="center")
+        toggle_btn = ctk.CTkButton(controls_frame, text="📋 Show Vehicles", command=toggle_vehicle_panel)
+        toggle_btn.pack(side="left", padx=10)
+
+        replay_btn = ctk.CTkButton(controls_frame, text="🔁 Replay", command=reset_and_replay)
+        replay_btn.pack(side="left", padx=10)
+
+        pause_btn = ctk.CTkButton(controls_frame, text="⏸️ Pause", command=toggle_pause)
+        pause_btn.pack(side="left", padx=10)
+
+        exit_btn = ctk.CTkButton(controls_frame, text="❌ Exit", command=anim_win.destroy, fg_color="red", hover_color="#aa0000")
+        exit_btn.pack(side="left", padx=10)
+
+        # Initial run
+        move_controlled()
     # Link the solve function to the Solve button
     solve_btn.configure(command=solve_callback)
     app.mainloop()
